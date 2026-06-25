@@ -8,23 +8,25 @@
 
 论文中，pi0 要建模：
 
-```text
-p(A_t | o_t)
-o_t = [I_t^1, ..., I_t^n, l_t, q_t]
-A_t = [a_t, a_{t+1}, ..., a_{t+H-1}]
-```
+$$
+\begin{aligned}
+p(A_t \mid o_t), \qquad
+o_t &= [I_t^1,\ldots,I_t^n,\ell_t,q_t], \\
+A_t &= [a_t,a_{t+1},\ldots,a_{t+H-1}].
+\end{aligned}
+$$
 
 论文依据：
 
-- 论文正文指出 observation 由多张 RGB 图像、语言命令、机器人本体状态组成，action 是未来 `H` 步 action chunk；见论文 `openpi/paper/Black_等_-_2026_-_π_0_A_Vision-Language-Action_Flow_Model_for_General_Robot_Control.md:75`。
-- 论文附录说明 PaliGemma 原本接收图像序列和语言 prompt，pi0 增加了 proprioceptive state `q_t` 与 noisy action chunk `A_t^tau`，并只使用 noisy action 对应的 transformer 输出投影成 vector field；见论文 `openpi/paper/Black_等_-_2026_-_π_0_A_Vision-Language-Action_Flow_Model_for_General_Robot_Control.md:411-415`。
+- 论文正文指出 observation 由多张 RGB 图像、语言命令、机器人本体状态组成，action 是未来 $H$ 步 action chunk；见论文 `openpi/paper/Black_等_-_2026_-_π_0_A_Vision-Language-Action_Flow_Model_for_General_Robot_Control.md:75`。
+- 论文附录说明 PaliGemma 原本接收图像序列和语言 prompt，pi0 增加了 proprioceptive state $q_t$ 与 noisy action chunk $A_t^\tau$，并只使用 noisy action 对应的 transformer 输出投影成 vector field；见论文 `openpi/paper/Black_等_-_2026_-_π_0_A_Vision-Language-Action_Flow_Model_for_General_Robot_Control.md:411-415`。
 - 论文附录说明 blockwise causal attention 有 3 个块：`[images, language]`、`[state]`、`[noisy actions]`；见论文 `openpi/paper/Black_等_-_2026_-_π_0_A_Vision-Language-Action_Flow_Model_for_General_Robot_Control.md:417`。
 - 论文附录说明图像和语言路由到较大的 VLM backbone，状态和动作路由到 action expert；见论文 `openpi/paper/Black_等_-_2026_-_π_0_A_Vision-Language-Action_Flow_Model_for_General_Robot_Control.md:419`。
 
 代码中的对应对象：
 
 - `Observation` 数据结构在 `openpi/src/openpi/models/model.py:81-107` 定义，包含 `images`、`image_masks`、`state`、`tokenized_prompt`、`tokenized_prompt_mask`。
-- `Actions` 类型在 `openpi/src/openpi/models/model.py:139-141` 定义，形状是 `[*b, ah, ad]`，即 batch 维、action horizon、action dim。
+- `Actions` 类型在 `openpi/src/openpi/models/model.py:139-141` 定义，形状是 $[*b, ah, ad]$，即 batch 维、action horizon、action dim。
 - pi0 默认 `action_dim=32`、`action_horizon=50`，见 `openpi/src/openpi/models/pi0_config.py:24-27`；输入 spec 明确三路图像、state、tokenized prompt 和 action chunk，见 `openpi/src/openpi/models/pi0_config.py:64-85`。
 - 模型固定期望三路图像 key：`base_0_rgb`、`left_wrist_0_rgb`、`right_wrist_0_rgb`，分辨率 `224x224`，见 `openpi/src/openpi/models/model.py:38-47`。
 
@@ -34,7 +36,7 @@ A_t = [a_t, a_{t+1}, ..., a_{t+H-1}]
 
 训练数据首先由 dataset loader 取出。对 LeRobot 数据，`create_torch_dataset` 会用 `delta_timestamps` 按 `action_horizon` 为每个当前时刻构造未来动作序列：
 
-- `openpi/src/openpi/training/data_loader.py:140-146`：`delta_timestamps={key: [t / fps for t in range(action_horizon)]}`，这一步把单步动作字段扩展成长度为 `H` 的 action chunk。
+- `openpi/src/openpi/training/data_loader.py:140-146`：`delta_timestamps={key: [t / fps for t in range(action_horizon)]}`，这一步把单步动作字段扩展成长度为 $H$ 的 action chunk。
 - `openpi/src/openpi/training/data_loader.py:172-191`：训练数据随后应用 `repack_transforms`、`data_transforms`、`Normalize`、`model_transforms`。
 - RLDS/DROID 路径类似，`create_rlds_dataset` 把 `action_chunk_size=action_horizon` 传入 `DroidRldsDataset`，见 `openpi/src/openpi/training/data_loader.py:154-169`。
 
@@ -66,7 +68,7 @@ A_t = [a_t, a_{t+1}, ..., a_{t+H-1}]
 
 - norm stats 的加载在 `openpi/src/openpi/training/config.py:179-199`。
 - transform pipeline 中 normalization 位于 model transform 之前，见 `openpi/src/openpi/training/data_loader.py:183-190`。
-- `Normalize` 对普通 z-score 使用 `(x - mean) / (std + 1e-6)`，见 `openpi/src/openpi/transforms.py:114-140`；quantile 归一化见 `openpi/src/openpi/transforms.py:141-145`。
+- `Normalize` 对普通 z-score 使用 $(x-\mathrm{mean})/(\mathrm{std}+10^{-6})$，见 `openpi/src/openpi/transforms.py:114-140`；quantile 归一化见 `openpi/src/openpi/transforms.py:141-145`。
 
 如果数据源是绝对关节目标，pi0 通常把动作转换为相对当前 state 的 delta action：
 
@@ -89,20 +91,14 @@ pi0 的 model transform 在 `ModelTransformFactory` 中定义：
 
 到这里，一个训练 batch 被整理成：
 
-```text
-Observation:
-  images:
-    base_0_rgb:       [B, 224, 224, 3]
-    left_wrist_0_rgb: [B, 224, 224, 3]
-    right_wrist_0_rgb:[B, 224, 224, 3]
-  image_masks:        每路图像 [B]
-  state:              [B, action_dim]
-  tokenized_prompt:   [B, max_token_len]
-  tokenized_prompt_mask: [B, max_token_len]
-
-Actions:
-  actions:            [B, action_horizon, action_dim]
-```
+- `Observation.images["base_0_rgb"]`: $[B,224,224,3]$
+- `Observation.images["left_wrist_0_rgb"]`: $[B,224,224,3]$
+- `Observation.images["right_wrist_0_rgb"]`: $[B,224,224,3]$
+- `Observation.image_masks[...]`: 每路图像 $[B]$
+- `Observation.state`: $[B,\mathrm{action\_dim}]$
+- `Observation.tokenized_prompt`: $[B,\mathrm{max\_token\_len}]$
+- `Observation.tokenized_prompt_mask`: $[B,\mathrm{max\_token\_len}]$
+- `Actions.actions`: $[B,\mathrm{action\_horizon},\mathrm{action\_dim}]$
 
 `Observation.from_dict` 会把 nested dict 转成结构化对象，同时把 uint8 图像转换到 `[-1, 1]` float，见 `openpi/src/openpi/models/model.py:109-129`。
 
@@ -129,21 +125,21 @@ Gemma 配置：
 - `openpi/src/openpi/models/pi0.py:70-80`：读取 PaliGemma 和 action expert 的 Gemma config，创建 `_gemma.Module(configs=[paligemma_config, action_expert_config])`。这就是一个 transformer 内部的两套 expert 权重。
 - `openpi/src/openpi/models/pi0.py:81-91`：创建 SigLIP 图像 encoder，并把 `llm` 与 `img` 放入 `self.PaliGemma`。
 - `openpi/src/openpi/models/pi0.py:92-100`：创建机器人侧投影层。pi0 主线包括：
-  - `action_in_proj: action_dim -> action_expert_width`
-  - `state_proj: action_dim -> action_expert_width`
-  - `action_time_mlp_in: 2 * action_expert_width -> action_expert_width`
-  - `action_time_mlp_out: action_expert_width -> action_expert_width`
-  - `action_out_proj: action_expert_width -> action_dim`
+  - `action_in_proj`: $\mathrm{action\_dim}\rightarrow\mathrm{action\_expert\_width}$
+  - `state_proj`: $\mathrm{action\_dim}\rightarrow\mathrm{action\_expert\_width}$
+  - `action_time_mlp_in`: $2\cdot\mathrm{action\_expert\_width}\rightarrow\mathrm{action\_expert\_width}$
+  - `action_time_mlp_out`: $\mathrm{action\_expert\_width}\rightarrow\mathrm{action\_expert\_width}$
+  - `action_out_proj`: $\mathrm{action\_expert\_width}\rightarrow\mathrm{action\_dim}$
 
 PyTorch 对照：`openpi/src/openpi/models_pytorch/pi0_pytorch.py:90-109` 同样构建 PaliGemma expert、action projection、state projection 和 time/action MLP。
 
 ## 4. Prefix：图像与语言如何进入 VLM backbone
 
-`Pi0.embed_prefix` 负责论文中的 `[I_t^1, ..., I_t^n, l_t]`：
+`Pi0.embed_prefix` 负责论文中的 $[I_t^1,\ldots,I_t^n,\ell_t]$：
 
 1. 遍历 `obs.images`，每路图像进入 SigLIP：
    - `openpi/src/openpi/models/pi0.py:112-116`：`image_tokens, _ = self.PaliGemma.img(obs.images[name], train=False)`。
-   - 图像 mask 从 `[B]` 扩展为 `[B, image_token_count]`，见 `openpi/src/openpi/models/pi0.py:117-123`。
+   - 图像 mask 从 $[B]$ 扩展为 $[B,\mathrm{image\_token\_count}]$，见 `openpi/src/openpi/models/pi0.py:117-123`。
    - `ar_mask += [False] * image_tokens.shape[1]`，见 `openpi/src/openpi/models/pi0.py:124-125`，表示图像 token 之间处于同一个 attention block，可双向互看。
 
 2. 如果有语言 token，则进入 PaliGemma/Gemma embedding table：
@@ -159,14 +155,14 @@ PyTorch 对照：`openpi/src/openpi/models_pytorch/pi0_pytorch.py:187-236`。
 
 ## 5. Suffix：state、noisy actions 与 flow timestep 如何进入 action expert
 
-`Pi0.embed_suffix` 负责论文中的 `[q_t, A_t^tau]`：
+`Pi0.embed_suffix` 负责论文中的 $[q_t,A_t^\tau]$：
 
 1. pi0 主线先添加 state token：
-   - `openpi/src/openpi/models/pi0.py:151-155`：`state_token = self.state_proj(obs.state)[:, None, :]`，把 `[B, action_dim]` 投影成一个 `[B, 1, action_expert_width]` token。
+   - `openpi/src/openpi/models/pi0.py:151-155`：`state_token = self.state_proj(obs.state)[:, None, :]`，把 $[B,\mathrm{action\_dim}]$ 投影成一个 $[B,1,\mathrm{action\_expert\_width}]$ token。
    - `openpi/src/openpi/models/pi0.py:156-157`：追加 `ar_mask=[True]`。根据 `make_attn_mask` 的 cumulative block 逻辑，这会开启一个新 block，因此 prefix 不能反向 attend 到 state。
 
 2. noisy action chunk 先逐步投影：
-   - `openpi/src/openpi/models/pi0.py:159`：`action_tokens = self.action_in_proj(noisy_actions)`，形状从 `[B, H, action_dim]` 变成 `[B, H, action_expert_width]`。
+   - `openpi/src/openpi/models/pi0.py:159`：`action_tokens = self.action_in_proj(noisy_actions)`，形状从 $[B,H,\mathrm{action\_dim}]$ 变成 $[B,H,\mathrm{action\_expert\_width}]$。
 
 3. flow timestep 经过正弦位置编码：
    - `openpi/src/openpi/models/pi0.py:160-161`：`posemb_sincos(timestep, width, min_period=4e-3, max_period=4.0)`。
@@ -177,11 +173,17 @@ PyTorch 对照：`openpi/src/openpi/models_pytorch/pi0_pytorch.py:187-236`。
      - `time_tokens = repeat(time_emb, s=action_horizon)`
      - `action_time_tokens = concat([action_tokens, time_tokens], axis=-1)`
      - `action_time_mlp_in -> swish -> action_time_mlp_out`
-   - 这对应论文附录中 `W3 * swish(W2 * concat(W1*a_tau, phi(tau)))` 的 timestep-action 融合，见论文 `openpi/paper/Black_等_-_2026_-_π_0_A_Vision-Language-Action_Flow_Model_for_General_Robot_Control.md:415`。
+   - 这对应论文附录中的 timestep-action 融合：
+
+$$
+W_3\,\mathrm{swish}\!\left(W_2\,\mathrm{concat}(W_1 a^\tau,\phi(\tau))\right)
+$$
+
+   - 代码位置见论文 `openpi/paper/Black_等_-_2026_-_π_0_A_Vision-Language-Action_Flow_Model_for_General_Robot_Control.md:415`。
 
 5. noisy action tokens 的 attention mask：
    - `openpi/src/openpi/models/pi0.py:179-185`：把 action tokens 拼到 suffix 后，并追加 `ar_mask += [True] + [False] * (H-1)`。
-   - 这表示第一个 action token 开启新 block，剩下 `H-1` 个 action token 与它同 block；所以所有 action tokens 内部双向 attention，并能 attend prefix 与 state，但 prefix/state 不能 attend 到 action block。
+   - 这表示第一个 action token 开启新 block，剩下 $H-1$ 个 action token 与它同 block；所以所有 action tokens 内部双向 attention，并能 attend prefix 与 state，但 prefix/state 不能 attend 到 action block。
 
 从这一步可以推出：state 与 noisy actions 作为 `suffix_tokens` 进入 expert 1，也就是 action expert。调用点同样是 `self.PaliGemma.llm([prefix_tokens, suffix_tokens], ...)` 的第 1 个元素，见 `openpi/src/openpi/models/pi0.py:209-211`。
 
@@ -195,19 +197,15 @@ PyTorch 对照：`openpi/src/openpi/models_pytorch/pi0_pytorch.py:238-315`。
 
 结合 prefix/suffix 的 `ar_mask`：
 
-```text
-prefix block: [images, language]      ar_mask 全 False
-state block:  [state]                 ar_mask 第一个 True
-action block: [a_0^tau ... a_H-1^tau] 第一个 True，其余 False
-```
+- prefix block：$[\mathrm{images},\mathrm{language}]$，`ar_mask` 全 `False`。
+- state block：$[\mathrm{state}]$，`ar_mask` 第一个为 `True`。
+- action block：$[a_0^\tau,\ldots,a_{H-1}^\tau]$，`ar_mask` 第一个为 `True`，其余为 `False`。
 
 因此完整信息流为：
 
-```text
-images/language query  -> 只能看 images/language
-state query            -> 能看 images/language + state
-action query           -> 能看 images/language + state + 所有 action tokens
-```
+- images/language query：只能看 images/language。
+- state query：能看 images/language + state。
+- action query：能看 images/language + state + 所有 action tokens。
 
 训练时：
 
@@ -266,34 +264,36 @@ Gemma 模块本身支持多个 expert：
 
 2. 采样 flow noise 和 timestep：
    - `openpi/src/openpi/models/pi0.py:195-198`：
-     - `noise = normal(actions.shape)`
-     - `time = beta(1.5, 1) * 0.999 + 0.001`
+     - $\mathrm{noise}\sim\mathcal{N}(0,I)$，形状与 `actions` 相同。
+     - $\mathrm{time}\sim 0.999\cdot\mathrm{Beta}(1.5,1)+0.001$。
    - 这对应论文附录“timestep 采样使用强调低 timestep 的 beta 分布、阈值 s=0.999”，见论文 `openpi/paper/Black_等_-_2026_-_π_0_A_Vision-Language-Action_Flow_Model_for_General_Robot_Control.md:421`。
 
 3. 构造 noisy action 与目标向量场：
    - `openpi/src/openpi/models/pi0.py:199-200`：
 
-```python
-x_t = time_expanded * noise + (1 - time_expanded) * actions
-u_t = noise - actions
-```
+$$
+\begin{aligned}
+x_t &= \mathrm{time}\cdot\mathrm{noise} + (1-\mathrm{time})\cdot\mathrm{actions}, \\
+u_t &= \mathrm{noise}-\mathrm{actions}.
+\end{aligned}
+$$
 
-   - 代码注释在推理处明确说明当前实现采用 diffusion 文献中常见约定：`t=1` 是 noise，`t=0` 是 target，且“opposite of the pi0 paper”；见 `openpi/src/openpi/models/pi0.py:225-228`。因此当前代码里的 `time` 与论文符号 `tau` 方向相反，但训练目标自洽：模型学习从当前 `x_t` 沿 `u_t = noise - actions` 的方向场，推理时用负步长从 noise 积分到 action。
+   - 代码注释在推理处明确说明当前实现采用 diffusion 文献中常见约定：$t=1$ 是 noise，$t=0$ 是 target，且“opposite of the pi0 paper”；见 `openpi/src/openpi/models/pi0.py:225-228`。因此当前代码里的 `time` 与论文符号 $\tau$ 方向相反，但训练目标自洽：模型学习从当前 $x_t$ 沿 $u_t=\mathrm{noise}-\mathrm{actions}$ 的方向场，推理时用负步长从 noise 积分到 action。
 
 4. 嵌入 prefix 与 suffix：
    - `openpi/src/openpi/models/pi0.py:202-207`：调用 `embed_prefix(observation)` 与 `embed_suffix(observation, x_t, time)`，拼接 mask。
 
 5. transformer 前向并只取 action token 输出：
    - `openpi/src/openpi/models/pi0.py:208-211`：计算 positions，一次性前向 `[prefix_tokens, suffix_tokens]`。
-   - `openpi/src/openpi/models/pi0.py:212`：`suffix_out[:, -self.action_horizon:]` 只取最后 `H` 个 noisy action tokens 的输出，再经 `action_out_proj` 得到 `v_t`，形状 `[B, H, action_dim]`。
+   - `openpi/src/openpi/models/pi0.py:212`：`suffix_out[:, -self.action_horizon:]` 只取最后 $H$ 个 noisy action tokens 的输出，再经 `action_out_proj` 得到 $v_t$，形状 $[B,H,\mathrm{action\_dim}]$。
 
 6. loss 是 action 维上的 MSE，保留 batch 与 horizon：
-   - `openpi/src/openpi/models/pi0.py:214`：`return mean(square(v_t - u_t), axis=-1)`，返回 `[B, H]`。
-   - 训练脚本再在 `openpi/scripts/train.py:150-151` 对 `[B, H]` 做全局 mean，得到标量 loss。
+   - `openpi/src/openpi/models/pi0.py:214`：`return mean(square(v_t - u_t), axis=-1)`，即 $\frac{1}{D}\sum_{d=1}^{D}(v_{t,d}-u_{t,d})^2$，返回 $[B,H]$。
+   - 训练脚本再在 `openpi/scripts/train.py:150-151` 对 $[B,H]$ 做全局 mean，得到标量 loss。
 
 PyTorch 对照：
 
-- `openpi/src/openpi/models_pytorch/pi0_pytorch.py:317-374` 完成同样流程，区别是最后 `F.mse_loss(u_t, v_t, reduction="none")` 保留 `[B,H,D]`，训练脚本在 `openpi/scripts/train_pytorch.py:529` 调用模型后再聚合。
+- `openpi/src/openpi/models_pytorch/pi0_pytorch.py:317-374` 完成同样流程，区别是最后 `F.mse_loss(u_t, v_t, reduction="none")` 保留 $[B,H,D]$，训练脚本在 `openpi/scripts/train_pytorch.py:529` 调用模型后再聚合。
 
 ## 9. 推理：从 observation 采样 action chunk
 
@@ -309,22 +309,22 @@ PyTorch 对照：
    - `openpi/src/openpi/models/pi0.py:225`：`preprocess_observation(None, observation, train=False)`。推理不做随机增强，但会 resize 和补 mask。
 
 2. 初始化为高斯噪声：
-   - `openpi/src/openpi/models/pi0.py:228-232`：默认 `num_steps=10`，`dt=-1/num_steps`，如果没有外部 noise，则采样 `[B,H,D]` 高斯噪声。
+   - `openpi/src/openpi/models/pi0.py:228-232`：默认 `num_steps=10`，$dt=-1/\mathrm{num\_steps}$，如果没有外部 noise，则采样 $[B,H,D]$ 高斯噪声。
 
 3. prefix cache：
    - `openpi/src/openpi/models/pi0.py:233-237`：只嵌入图像/语言 prefix，构造 prefix attention mask，跑 LLM 得到 `kv_cache`。
 
 4. 每个 flow step 只跑 suffix/action expert：
    - `openpi/src/openpi/models/pi0.py:239-271` 定义单步：
-     - 用当前 `x_t` 和当前 `time` 调 `embed_suffix`。
+     - 用当前 $x_t$ 和当前 $\mathrm{time}$ 调 `embed_suffix`。
      - 构造 suffix 内部 mask 与 suffix-to-prefix mask。
      - 用 prefix `kv_cache` 前向 `[None, suffix_tokens]`。
-     - 取最后 `H` 个 action token 输出，经 `action_out_proj` 得到 `v_t`。
-     - Euler 更新：`x_t + dt * v_t`，`time + dt`。
+     - 取最后 $H$ 个 action token 输出，经 `action_out_proj` 得到 $v_t$。
+     - Euler 更新：$x_t \leftarrow x_t + dt\cdot v_t$，$\mathrm{time}\leftarrow\mathrm{time}+dt$。
 
-5. 循环从 `time=1.0` 到 `0`：
+5. 循环从 $\mathrm{time}=1.0$ 到 $0$：
    - `openpi/src/openpi/models/pi0.py:273-278`：`while_loop` 直到 `time >= -dt/2` 不再满足。
-   - 返回 `x_0`，即 action chunk。
+   - 返回 $x_0$，即 action chunk。
 
 PyTorch 对照：
 
@@ -336,50 +336,34 @@ PyTorch 对照：
 
 下面用一条可直接对应代码的链路概括：
 
-```text
-原始机器人样本
-  -> dataset 按 action_horizon 取未来 H 步动作
-  -> repack 成 image/state/actions/prompt
-  -> embodiment transform 统一到三路图像 + state + actions + prompt
-  -> Normalize(state, actions)
-  -> TokenizePrompt(prompt) 得到 tokenized_prompt
-  -> PadStatesAndActions 到 action_dim
-  -> Observation.from_dict / Actions
-  -> preprocess_observation resize/augment/mask
-  -> embed_prefix:
-       images -> SigLIP image tokens
-       prompt ids -> PaliGemma token embedding
-       路由到 expert 0 / VLM backbone
-  -> compute_loss 训练时:
-       actions + noise + time -> noisy_actions x_t
-  -> embed_suffix:
-       state -> state_proj -> state token
-       noisy_actions -> action_in_proj
-       time -> sincos -> concat(action,time) -> MLP
-       路由到 expert 1 / action expert
-  -> make_attn_mask:
-       prefix 只能看 prefix
-       state 看 prefix+state
-       action 看 prefix+state+action
-  -> Gemma two-expert transformer:
-       expert-local RMSNorm/FFN
-       cross-expert self-attention 交换信息
-  -> 只取最后 H 个 action token 输出
-  -> action_out_proj 得到 v_t
-  -> loss:
-       mean_D((v_t - (noise - actions))^2)
-  -> train.py 再 mean over B,H 得到标量
-```
+1. 原始机器人样本。
+2. dataset 按 `action_horizon` 取未来 $H$ 步动作。
+3. repack 成 `image/state/actions/prompt`。
+4. embodiment transform 统一到三路图像 + state + actions + prompt。
+5. `Normalize(state, actions)`。
+6. `TokenizePrompt(prompt)` 得到 `tokenized_prompt`。
+7. `PadStatesAndActions` 到 `action_dim`。
+8. `Observation.from_dict / Actions`。
+9. `preprocess_observation` 执行 resize、augment、mask。
+10. `embed_prefix`：images $\rightarrow$ SigLIP image tokens；prompt ids $\rightarrow$ PaliGemma token embedding；路由到 expert 0 / VLM backbone。
+11. `compute_loss` 训练时：$\mathrm{actions}+\mathrm{noise}+\mathrm{time}\rightarrow x_t$。
+12. `embed_suffix`：state $\rightarrow$ `state_proj` $\rightarrow$ state token；noisy actions $\rightarrow$ `action_in_proj`；time $\rightarrow$ sincos $\rightarrow$ concat(action,time) $\rightarrow$ MLP；路由到 expert 1 / action expert。
+13. `make_attn_mask`：prefix 只能看 prefix；state 看 prefix + state；action 看 prefix + state + action。
+14. Gemma two-expert transformer：expert-local RMSNorm/FFN，cross-expert self-attention 交换信息。
+15. 只取最后 $H$ 个 action token 输出，经 `action_out_proj` 得到 $v_t$。
+16. loss：$\mathrm{mean}_D\left((v_t-(\mathrm{noise}-\mathrm{actions}))^2\right)$。
+17. `train.py` 再对 $B,H$ 维度求 mean 得到标量。
 
-推理时把中间 `actions + noise + time -> x_t` 换成：
+推理时把中间 $x_t=\mathrm{time}\cdot\mathrm{noise}+(1-\mathrm{time})\cdot\mathrm{actions}$ 换成：
 
-```text
-sample x_1 ~ N(0,I)
-for 10 Euler steps from time=1 to time=0:
-  v_t = model(x_t, observation, time)
-  x_t = x_t - (1/num_steps) * v_t
-return x_0 as action chunk
-```
+$$
+\begin{aligned}
+x_1 &\sim \mathcal{N}(0,I), \\
+v_t &= \mathrm{model}(x_t,\mathrm{observation},t), \\
+x_{t+dt} &= x_t + dt\cdot v_t,\qquad dt=-1/\mathrm{num\_steps}, \\
+\mathrm{return}\quad x_0 &\quad \text{as action chunk}.
+\end{aligned}
+$$
 
 ## 11. 最关键代码位置索引
 
