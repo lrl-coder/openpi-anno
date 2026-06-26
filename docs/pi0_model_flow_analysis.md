@@ -70,7 +70,7 @@ $$
 - transform pipeline 中 normalization 位于 model transform 之前，见 `openpi/src/openpi/training/data_loader.py:183-190`。
 - `Normalize` 对普通 z-score 使用 $(x-\mathrm{mean})/(\mathrm{std}+10^{-6})$，见 `openpi/src/openpi/transforms.py:114-140`；quantile 归一化见 `openpi/src/openpi/transforms.py:141-145`。
 
-如果数据源是绝对关节目标，pi0 通常把动作转换为相对当前 state 的 delta action：
+**如果数据源是绝对关节目标，pi0 通常把动作转换为相对当前 state 的 delta action：**
 
 - `DeltaActions` 在 `openpi/src/openpi/transforms.py:203-221` 中实现：`actions[..., :dims] -= state[..., :dims]`，只对 mask 指定维度生效。
 - ALOHA 默认启用 delta joint action，见 `openpi/src/openpi/training/config.py:229-268`。
